@@ -105,3 +105,9 @@ Windows x64、Rust MSVC、Visual Studio Build Tools の C++ ツールチェー�
 単体版とインストーラーを `dist` に生成します。`cargo test --locked` で判定の正例・負例、ドライバー状態の制限を検証できます。GitHub Actions も同じビルド手順を実行します。
 
 MIT License。
+
+## 調査記事
+
+[Windows 11で音が出なくなったCHD312を復活させた【24H2以降・非公式】（Zenn）](https://zenn.dev/ryuya0124/articles/1a392bf5f7783c)
+
+記事は現在下書きです。公開後、上記の公開URLから読めます。

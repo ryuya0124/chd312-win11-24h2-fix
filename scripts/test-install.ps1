@@ -7,7 +7,10 @@ if (Test-Path -LiteralPath $installRoot) { throw 'Existing install detected; ref
 $taskName = 'CHD312Win11Fix-' + [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $setupPath = (Resolve-Path -LiteralPath 'dist/chd312-setup-x64.exe').Path
 $setupProcess = Start-Process -FilePath $setupPath -ArgumentList '--silent' -WindowStyle Hidden -PassThru -Wait
-if ($setupProcess.ExitCode -ne 0) { throw 'Installation failed.' }
+if ($setupProcess.ExitCode -ne 0) {
+    Get-Content -LiteralPath (Join-Path $env:LOCALAPPDATA 'CHD312Win11Fix\fix.log') -ErrorAction SilentlyContinue | Write-Output
+    throw ('Installation failed, exit code ' + $setupProcess.ExitCode)
+}
 try {
     foreach ($name in @('chd312.exe','chd312-background.exe','Uninstall.exe','README.txt')) {
         if (-not (Test-Path -LiteralPath (Join-Path $installRoot $name))) { throw ('Missing installed file: ' + $name) }
