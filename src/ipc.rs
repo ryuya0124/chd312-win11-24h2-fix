@@ -61,10 +61,11 @@ pub enum Message {
     Terminate,
 }
 fn pipe_name() -> Result<Vec<u16>> {
-    Ok(system::wide(&format!(
-        r"\\.\pipe\CHD312Win11Fix-{}",
-        system::sid()?
-    )))
+    let mut name = format!(r"\\.\pipe\CHD312Win11Fix-{}", system::sid()?);
+    if cfg!(test) {
+        name.push_str(&format!("-test-{}", std::process::id()));
+    }
+    Ok(system::wide(&name))
 }
 pub fn call(request: &Request) -> Result<Response> {
     unsafe {
@@ -100,6 +101,7 @@ pub fn spawn_server(sender: Sender<Message>) -> Result<()> {
         })?;
     Ok(())
 }
+
 unsafe fn serve(name: Vec<u16>, sid: &str, sender: Sender<Message>) -> Result<()> {
     let sddl = system::wide(&format!("D:P(A;;GA;;;SY)(A;;GA;;;{sid})S:(ML;;NW;;;ME)"));
     let mut descriptor = null_mut();
@@ -191,4 +193,44 @@ unsafe fn serve(name: Vec<u16>, sid: &str, sender: Sender<Message>) -> Result<()
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn secured_local_pipe_round_trip_and_shutdown() {
+        let (tx, rx) = mpsc::channel();
+        let handler = thread::spawn(move || {
+            while let Ok(message) = rx.recv_timeout(Duration::from_secs(15)) {
+                match message {
+                    Message::Request(request, reply) => {
+                        let _ = reply.send(Response::ok(if request == Request::Status {
+                            "status received"
+                        } else {
+                            "stop received"
+                        }));
+                    }
+                    Message::Terminate => break,
+                    _ => {}
+                }
+            }
+        });
+        spawn_server(tx).unwrap();
+        let mut reply = None;
+        for _ in 0..40 {
+            match call(&Request::Status) {
+                Ok(r) => {
+                    reply = Some(r);
+                    break;
+                }
+                Err(_) => thread::sleep(Duration::from_millis(50)),
+            }
+        }
+        let reply = reply.expect("Per-user named pipe should be accessible");
+        assert!(reply.ok);
+        assert_eq!(reply.message, "status received");
+        assert!(call(&Request::Stop).unwrap().ok);
+        handler.join().unwrap();
+    }
 }

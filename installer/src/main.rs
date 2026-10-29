@@ -5,12 +5,7 @@ use chd312_win11_fix::{
     ipc::{self, Request},
     system,
 };
-use std::{
-    fs,
-    os::windows::{fs::MetadataExt, process::CommandExt},
-    path::Path,
-    process::Command,
-};
+use std::{fs, os::windows::fs::MetadataExt, path::Path};
 use windows_sys::Win32::{System::Threading::*, UI::WindowsAndMessaging::*};
 const CLI: &[u8] = include_bytes!("../../target/release/chd312.exe");
 const BACKGROUND: &[u8] = include_bytes!("../../target/release/chd312-background.exe");
@@ -81,6 +76,7 @@ fn install() -> Result<()> {
     }
     fs::write(dir.join("README.txt"), README)?;
     powershell(include_str!("../install.ps1"))?;
+    system::broadcast_environment();
     Ok(())
 }
 fn uninstall() -> Result<()> {
@@ -88,13 +84,14 @@ fn uninstall() -> Result<()> {
     validate_dir(&dir)?;
     stop_monitor();
     powershell(include_str!("../uninstall.ps1"))?;
+    system::broadcast_environment();
     // Defer only this fixed set of files until our own process has exited. No recursive file deletion.
     let literal = dir.to_string_lossy().replace('\'', "''");
     let pid = std::process::id();
     let cleanup = format!(
         r#"$ErrorActionPreference='SilentlyContinue'; Wait-Process -Id {pid} -ErrorAction SilentlyContinue; $dir='{literal}'; for($i=0;$i -lt 40;$i++){{ foreach($name in @('chd312.exe','chd312-background.exe','Uninstall.exe','README.txt')){{ $p=Join-Path $dir $name; if(Test-Path -LiteralPath $p){{Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue}} }}; if((Test-Path -LiteralPath $dir) -and @(Get-ChildItem -LiteralPath $dir -Force).Count -eq 0){{Remove-Item -LiteralPath $dir -Force}}; if(-not (Test-Path -LiteralPath $dir)){{break}}; Start-Sleep -Milliseconds 500 }}"#
     );
-    Command::new("powershell.exe")
+    system::hidden_command("powershell.exe")
         .args([
             "-NoLogo",
             "-NoProfile",
@@ -102,14 +99,27 @@ fn uninstall() -> Result<()> {
             "-Command",
             &cleanup,
         ])
-        .creation_flags(CREATE_NO_WINDOW)
         .spawn()?;
     Ok(())
 }
 fn main() {
     let args: Vec<_> = std::env::args().collect();
-    let remove = args.iter().any(|s| s == "--uninstall");
+    let mut remove = args.iter().any(|s| s == "--uninstall");
     let silent = args.iter().any(|s| s == "--silent");
+    if !silent
+        && !remove
+        && !args.iter().any(|s| s == "--install")
+        && system::installed_dir().is_ok_and(|p| p.join("chd312.exe").exists())
+    {
+        let choice = unsafe {
+            MessageBoxW(std::ptr::null_mut(),system::wide("インストール済みです。\n\nはい: インストールを更新\nいいえ: アンインストール\nキャンセル: 何もせず終了").as_ptr(),system::wide("CHD312 Windows 11 24H2+ Fix").as_ptr(),MB_YESNOCANCEL|MB_ICONQUESTION)
+        };
+        match choice {
+            IDYES => {}
+            IDNO => remove = true,
+            _ => return,
+        }
+    }
     let result = (|| -> Result<()> {
         ensure!(system::is_admin(), "Administrator privileges required");
         if remove {

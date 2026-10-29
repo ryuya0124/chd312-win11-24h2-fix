@@ -99,9 +99,44 @@ pub fn task_name() -> Result<String> {
     Ok(format!("CHD312Win11Fix-{}", sid()?))
 }
 pub fn hidden_command(exe: &str) -> Command {
-    let mut c = Command::new(exe);
+    // Resolve Windows tools through the OS, never through a caller-controlled PATH/CWD.
+    let mut buffer = [0u16; 512];
+    let len = unsafe {
+        windows_sys::Win32::System::SystemInformation::GetSystemDirectoryW(
+            buffer.as_mut_ptr(),
+            buffer.len() as u32,
+        )
+    } as usize;
+    assert!(
+        len > 0 && len < buffer.len(),
+        "Cannot locate the Windows system directory"
+    );
+    let system_dir = PathBuf::from(String::from_utf16_lossy(&buffer[..len]));
+    let path = match exe {
+        "powershell.exe" => system_dir.join("WindowsPowerShell").join("v1.0").join(exe),
+        "explorer.exe" => system_dir.parent().expect("Windows directory").join(exe),
+        "schtasks.exe" => system_dir.join(exe),
+        _ => panic!("Unexpected Windows helper"),
+    };
+    let mut c = Command::new(path);
     c.creation_flags(CREATE_NO_WINDOW);
     c
+}
+pub fn broadcast_environment() {
+    unsafe {
+        use windows_sys::Win32::UI::WindowsAndMessaging::*;
+        let text = wide("Environment");
+        let mut result = 0;
+        SendMessageTimeoutW(
+            HWND_BROADCAST,
+            WM_SETTINGCHANGE,
+            0,
+            text.as_ptr() as isize,
+            SMTO_ABORTIFHUNG,
+            3000,
+            &mut result,
+        );
+    }
 }
 pub fn start_task() -> Result<()> {
     let output = hidden_command("schtasks.exe")

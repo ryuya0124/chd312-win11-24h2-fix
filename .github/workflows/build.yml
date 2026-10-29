@@ -27,6 +27,9 @@ jobs:
       - name: Test and build both distributions
         shell: pwsh
         run: ./scripts/build.ps1
+      - name: Install / silent startup / uninstall smoke test
+        shell: pwsh
+        run: ./scripts/test-install.ps1
       - uses: actions/upload-artifact@v7.0.2
         with:
           name: chd312-windows-x64
