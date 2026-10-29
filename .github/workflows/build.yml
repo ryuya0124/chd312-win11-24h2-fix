@@ -27,6 +27,13 @@ jobs:
       - name: Test and build both distributions
         shell: pwsh
         run: ./scripts/build.ps1
+      - name: Lint bundled portable and installer
+        shell: pwsh
+        run: |
+          cargo clippy --locked --all-targets --features bundle-worker -- -D warnings
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cargo clippy --locked --manifest-path installer/Cargo.toml -- -D warnings
+          exit $LASTEXITCODE
       - name: Install / silent startup / uninstall smoke test
         shell: pwsh
         run: ./scripts/test-install.ps1

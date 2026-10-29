@@ -90,6 +90,8 @@ E235F83B29245CF7272F1F733000F2B36A76E48B88A1160F8F42F1CDB1ED33A7
 
 参考:
 
+Rust版では、実機の14条件の照合と、Windows CIでインストール・ウィンドウなしの常駐起動・コマンド操作・対象不在時の適用拒否・アンインストールを確認しています。実機の差し直しをきっかけとするRust版の自動切り替えは、まだ未検証です。
+
 - [Microsoft: USB interface collections と互換 ID](https://learn.microsoft.com/en-us/windows-hardware/drivers/usbcon/support-for-interface-collections)
 - [Microsoft: MIDI class driver の切り替え](https://microsoft.github.io/MIDI/kb/how-to-switch-between-class-drivers/)
 - [Microsoft: デバイス接続通知](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/registering-for-notification-of-device-interface-arrival-and-device-removal)
