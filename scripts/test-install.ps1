@@ -15,6 +15,11 @@ try {
     foreach ($name in @('chd312.exe','chd312-background.exe','Uninstall.exe','README.txt')) {
         if (-not (Test-Path -LiteralPath (Join-Path $installRoot $name))) { throw ('Missing installed file: ' + $name) }
     }
+    if ((Get-FileHash -LiteralPath $setupPath).Hash -ne (Get-FileHash -LiteralPath (Join-Path $installRoot 'Uninstall.exe')).Hash) { throw 'Installer and uninstaller are not the same EXE.' }
+    $menuFolder = Join-Path ([Environment]::GetFolderPath('Programs')) 'CHD312 Windows 11 24H2+ Fix'
+    foreach ($shortcut in @('CHD312 Windows 11 24H2+ Fix.lnk','Usage and commands.lnk','Uninstall.lnk')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $menuFolder $shortcut))) { throw 'Start menu shortcut missing.' }
+    }
     $task = Get-ScheduledTask -TaskName $taskName
     if ($task.Principal.RunLevel -ne 'Highest') { throw 'Task is not configured for elevation.' }
     $cli = Join-Path $installRoot 'chd312.exe'

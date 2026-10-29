@@ -38,10 +38,10 @@ $shortcut.Arguments = 'start'
 $shortcut.WorkingDirectory = $installRoot
 $shortcut.Description = '画面を表示せずに CHD312 の自動修復監視を開始'
 $shortcut.Save()
-$shortcut = $shell.CreateShortcut((Join-Path $menuFolder '使い方・コマンド一覧.lnk'))
+$shortcut = $shell.CreateShortcut((Join-Path $menuFolder 'Usage and commands.lnk'))
 $shortcut.TargetPath = Join-Path $installRoot 'README.txt'
 $shortcut.Save()
-$shortcut = $shell.CreateShortcut((Join-Path $menuFolder 'アンインストール.lnk'))
+$shortcut = $shell.CreateShortcut((Join-Path $menuFolder 'Uninstall.lnk'))
 $shortcut.TargetPath = Join-Path $installRoot 'Uninstall.exe'
 $shortcut.Arguments = '--uninstall'
 $shortcut.Save()

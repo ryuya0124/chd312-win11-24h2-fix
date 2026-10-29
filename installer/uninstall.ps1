@@ -14,7 +14,7 @@ if ($registeredTask) {
     $rootFolder.DeleteTask($taskName, 0)
 }
 $menuFolder = Join-Path ([Environment]::GetFolderPath('Programs')) 'CHD312 Windows 11 24H2+ Fix'
-foreach ($shortcutName in @('CHD312 Windows 11 24H2+ Fix.lnk', '使い方・コマンド一覧.lnk', 'アンインストール.lnk')) {
+foreach ($shortcutName in @('CHD312 Windows 11 24H2+ Fix.lnk', 'Usage and commands.lnk', 'Uninstall.lnk', '使い方・コマンド一覧.lnk', 'アンインストール.lnk')) {
     $shortcutPath = Join-Path $menuFolder $shortcutName
     if (Test-Path -LiteralPath $shortcutPath) { Remove-Item -LiteralPath $shortcutPath -Force }
 }
