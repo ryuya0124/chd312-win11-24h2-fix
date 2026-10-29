@@ -1,0 +1,46 @@
+name: Windows build
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Rust tools
+        shell: pwsh
+        run: rustup component add rustfmt clippy
+      - name: Format and lint
+        shell: pwsh
+        run: |
+          cargo fmt --all --check
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cargo clippy --locked --all-targets -- -D warnings
+          exit $LASTEXITCODE
+      - name: Test and build both distributions
+        shell: pwsh
+        run: ./scripts/build.ps1
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: chd312-windows-x64
+          path: dist/*
+          if-no-files-found: error
+      - name: Publish release assets
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view $env:GITHUB_REF_NAME *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $env:GITHUB_REF_NAME --title "CHD312 Windows 11 24H2+ Fix $env:GITHUB_REF_NAME" --generate-notes --prerelease
+          }
+          gh release upload $env:GITHUB_REF_NAME dist/* --clobber
+          exit $LASTEXITCODE
