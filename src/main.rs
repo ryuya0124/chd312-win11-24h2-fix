@@ -77,7 +77,19 @@ fn print_status(s: &Status) {
     );
     println!("Checked: {}", s.updated);
     if s.devices.is_empty() {
-        println!("Capture device: not connected");
+        println!(
+            "Capture device: not detected by Windows; USB initialization may still be in progress"
+        );
+    }
+    for port in &s.usb_ports {
+        println!(
+            "Last validated USB location: {} / port {}",
+            port.location.hub, port.location.port
+        );
+        println!("  {}", port.description());
+        if let Some(error) = &port.error {
+            println!("  {error}");
+        }
     }
     for c in &s.devices {
         println!("\n{}", c.parent);
@@ -116,8 +128,8 @@ fn run() -> Result<()> {
     let json = args.iter().any(|s| s == "--json");
     match cmd {
         "help"|"--help"|"-h"=>println!("CHD312 Windows 11 24H2+ Fix (unofficial) v{}\n\nchd312 status [--json]     Live device/monitor status\nchd312 inspect [--json]    Read-only detailed identity checks\nchd312 start               Start the hidden monitor\nchd312 stop                Stop this session's monitor\nchd312 enable              Enable automatic MIDI-to-audio repair\nchd312 disable             Pause automatic repair (keep audio working)\nchd312 apply [--force]     Repair MIDI bindings now; --force allows a pass while paused\nchd312 restore-original    Pause repair, then restore original MIDI binding (audio may fail)\nchd312 logs                Open the log folder\nchd312 uninstall           Run the installed uninstaller\n\nUSB Audio and unknown drivers are NEVER replaced by apply, even with --force.\nAll identity checks remain mandatory. Portable start may request administrator approval.",env!("CARGO_PKG_VERSION")),
-        "status"=>{let response=match ipc::call(&Request::Status){Ok(value)=>value,Err(_)=>Response{ok:true,message:"Monitor is not running. Read-only device status:".into(),status:Some(Status{running:false,pid:0,automatic:system::settings_enabled(),restart_required:false,updated:chrono::Local::now().to_rfc3339(),devices:device::inspect()?})}};display(response,json)?;},
-        "inspect"=>{let captures=device::inspect()?;if json{println!("{}",serde_json::to_string_pretty(&captures)?);}else{for c in &captures{println!("{}\nMATCH: {}",c.parent,c.matches());for check in &c.checks{println!("  {} {}: {}",if check.passed{"PASS"}else{"FAIL"},check.name,check.detail);}}if captures.is_empty(){println!("No matching VID/PID device connected");}}},
+        "status"=>{let response=match ipc::call(&Request::Status){Ok(value)=>value,Err(_)=>{let devices=device::inspect()?;Response{ok:true,message:"Monitor is not running. Read-only device status:".into(),status:Some(Status{running:false,pid:0,automatic:system::settings_enabled(),restart_required:false,updated:chrono::Local::now().to_rfc3339(),devices,usb_ports:vec![]})}}};display(response,json)?;},
+        "inspect"=>{let captures=device::inspect()?;if json{println!("{}",serde_json::to_string_pretty(&captures)?);}else{for c in &captures{println!("{}\nMATCH: {}",c.parent,c.matches());for check in &c.checks{println!("  {} {}: {}",if check.passed{"PASS"}else{"FAIL"},check.name,check.detail);}}if captures.is_empty(){println!("No matching VID/PID device detected by Windows; USB initialization may still be in progress");}}},
         "start"=>{start()?;display(ipc::call(&Request::Status)?,json)?;},
         "stop"=>{if let Ok(r)=ipc::call(&Request::Stop){display(r,json)?;}else{println!("Monitor is already stopped");}},
         "disable"=>{system::set_enabled(false)?;if let Ok(r)=ipc::call(&Request::Disable){display(r,json)?;}else{println!("Automatic repair paused; monitor is not running");}},

@@ -32,6 +32,8 @@ pub struct Status {
     pub restart_required: bool,
     pub updated: String,
     pub devices: Vec<Capture>,
+    #[serde(default)]
+    pub usb_ports: Vec<crate::device::UsbPortObservation>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Response {
@@ -198,6 +200,14 @@ unsafe fn serve(name: Vec<u16>, sid: &str, sender: Sender<Message>) -> Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn status_from_previous_release_remains_readable() {
+        let old = r#"{"running":true,"pid":1,"automatic":true,"restart_required":false,"updated":"test","devices":[]}"#;
+        assert!(serde_json::from_str::<Status>(old)
+            .unwrap()
+            .usb_ports
+            .is_empty());
+    }
     #[test]
     fn secured_local_pipe_round_trip_and_shutdown() {
         let (tx, rx) = mpsc::channel();

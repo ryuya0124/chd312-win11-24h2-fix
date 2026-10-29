@@ -368,6 +368,127 @@ pub fn inspect() -> Result<Vec<Capture>> {
         .collect())
 }
 
+// Diagnostic hints from previously validated locations, never an installation target.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct UsbLocation {
+    pub hub: String,
+    pub port: u32,
+}
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct UsbPortObservation {
+    pub location: UsbLocation,
+    pub connection_status: Option<u32>,
+    pub vid: Option<u16>,
+    pub pid: Option<u16>,
+    pub error: Option<String>,
+}
+impl UsbPortObservation {
+    pub fn description(&self) -> &'static str {
+        match self.connection_status {
+            Some(1) if self.vid == Some(0x04b4) && self.pid == Some(0x00f8) =>
+                "USB hub sees 04B4:00F8; Windows capture functions are not ready or do not fully match",
+            Some(1) => "USB hub reports a connected device; full identity is not confirmed",
+            Some(9) => "USB hub reports DeviceEnumerating (initialization in progress)",
+            Some(10) => "USB hub reports DeviceReset (reset in progress)",
+            Some(0) => "USB hub reports NoDeviceConnected at this previously validated port",
+            Some(_) => "USB hub reports a connection error or another connection state",
+            None => "USB hub state could not be read",
+        }
+    }
+}
+pub fn remember_locations(captures: &[Capture], known: &mut Vec<UsbLocation>) -> Result<()> {
+    if !captures.iter().any(Capture::matches) {
+        return Ok(());
+    }
+    for node in enumerate()? {
+        if node.port == 0
+            || node.parent.is_empty()
+            || !captures
+                .iter()
+                .any(|c| c.matches() && c.parent.eq_ignore_ascii_case(&node.id))
+        {
+            continue;
+        }
+        let location = UsbLocation {
+            hub: node.parent,
+            port: node.port,
+        };
+        if !known.contains(&location) {
+            known.push(location);
+            if known.len() > 16 {
+                known.remove(0);
+            }
+        }
+    }
+    Ok(())
+}
+fn parse_port(location: UsbLocation, node: &[u8]) -> Result<UsbPortObservation> {
+    // USB_NODE_CONNECTION_INFORMATION_EX uses the SDK's packed layout.
+    ensure!(node.len() >= 35, "Incomplete USB connection information");
+    Ok(UsbPortObservation {
+        location,
+        connection_status: Some(u32::from_le_bytes(node[31..35].try_into()?)),
+        vid: Some(u16::from_le_bytes(node[12..14].try_into()?)),
+        pid: Some(u16::from_le_bytes(node[14..16].try_into()?)),
+        error: None,
+    })
+}
+pub fn probe_port(location: &UsbLocation) -> UsbPortObservation {
+    let result = (|| -> Result<_> {
+        unsafe {
+            let path = system::wide(&hub_path(&location.hub)?);
+            let h = Handle(CreateFileW(
+                path.as_ptr(),
+                0,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                null(),
+                OPEN_EXISTING,
+                0,
+                null_mut(),
+            ));
+            ensure!(
+                h.0 != INVALID_HANDLE_VALUE,
+                "Cannot open USB hub: {}",
+                std::io::Error::last_os_error()
+            );
+            let mut request = vec![0u8; 4096];
+            request[..4].copy_from_slice(&location.port.to_le_bytes());
+            parse_port(location.clone(), &ioctl(h.0, 0x220448, request)?)
+        }
+    })();
+    result.unwrap_or_else(|e| UsbPortObservation {
+        location: location.clone(),
+        connection_status: None,
+        vid: None,
+        pid: None,
+        error: Some(format!("{e:#}")),
+    })
+}
+
+#[cfg(test)]
+mod port_tests {
+    use super::*;
+    #[test]
+    fn packed_connection_state_and_identity_are_separate() {
+        let location = UsbLocation {
+            hub: "test hub".into(),
+            port: 2,
+        };
+        let mut node = vec![0u8; 35];
+        node[12..16].copy_from_slice(&[0xb4, 4, 0xf8, 0]);
+        node[31..35].copy_from_slice(&1u32.to_le_bytes());
+        let connected = parse_port(location.clone(), &node).unwrap();
+        assert_eq!(connected.vid, Some(0x04b4));
+        assert!(connected.description().contains("not ready"));
+        node[31..35].copy_from_slice(&9u32.to_le_bytes());
+        assert!(parse_port(location.clone(), &node)
+            .unwrap()
+            .description()
+            .contains("DeviceEnumerating"));
+        assert!(parse_port(location, &node[..34]).is_err());
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DesiredDriver {
     Audio,

@@ -89,6 +89,7 @@ fn snapshot(devices: Vec<Capture>, automatic: bool, restart: bool) -> Status {
         restart_required: restart,
         updated: chrono::Local::now().to_rfc3339(),
         devices,
+        usb_ports: vec![],
     }
 }
 fn persist(status: &Status) {
@@ -99,6 +100,19 @@ fn persist(status: &Status) {
             let _ = std::fs::rename(temp, path);
         }
     }
+}
+fn needs_retry(captures: &[Capture]) -> bool {
+    captures.is_empty() || captures.iter().any(|c| !c.matches())
+}
+fn update_diagnostics(status: &mut Status, known: &mut Vec<device::UsbLocation>) {
+    if let Err(e) = device::remember_locations(&status.devices, known) {
+        system::log(&format!("USB_LOCATION_ERROR {e:#}"));
+    }
+    status.usb_ports = if needs_retry(&status.devices) {
+        known.iter().map(device::probe_port).collect()
+    } else {
+        vec![]
+    };
 }
 fn repair_all(captures: &[Capture], desired: device::DesiredDriver) -> Result<(u32, bool)> {
     let mut changed = 0;
@@ -130,6 +144,7 @@ pub fn watch() -> Result<()> {
     ipc::spawn_server(tx)?;
     let mut automatic = system::settings_enabled();
     let mut status = snapshot(vec![], automatic, false);
+    let mut known_locations = vec![];
     let mut pending = Some(Instant::now());
     let mut burst_start = Instant::now();
     let mut retries = 4u8;
@@ -171,6 +186,7 @@ pub fn watch() -> Result<()> {
                 let result = (|| -> Result<Response> {
                     match request {
                         Request::Status => {
+                            // Commands always perform a fresh read, without settling sleeps.
                             status.devices = device::inspect()?;
                             status.updated = chrono::Local::now().to_rfc3339();
                         }
@@ -200,6 +216,7 @@ pub fn watch() -> Result<()> {
                             status.restart_required |= restart;
                             status.devices = device::inspect()?;
                             status.updated = chrono::Local::now().to_rfc3339();
+                            update_diagnostics(&mut status, &mut known_locations);
                             persist(&status);
                             let mut r=Response::ok(format!("Changed {changed} audio function(s). USB Audio / unknown drivers were skipped. Restart required: {restart}"));
                             r.status = Some(status.clone());
@@ -218,6 +235,8 @@ pub fn watch() -> Result<()> {
                                 repair_all(&captures, device::DesiredDriver::OriginalMidi)?;
                             status.restart_required |= restart;
                             status.devices = device::inspect()?;
+                            status.updated = chrono::Local::now().to_rfc3339();
+                            update_diagnostics(&mut status, &mut known_locations);
                             persist(&status);
                             let mut r=Response::ok(format!("Restored original USB MIDI binding for {changed} function(s). Automatic repair is PAUSED; audio may stop working."));
                             r.status = Some(status.clone());
@@ -231,6 +250,7 @@ pub fn watch() -> Result<()> {
                         }
                     }
                     status.automatic = automatic;
+                    update_diagnostics(&mut status, &mut known_locations);
                     persist(&status);
                     let mut response = Response::ok("OK");
                     response.status = Some(status.clone());
@@ -248,7 +268,7 @@ pub fn watch() -> Result<()> {
                 }
                 let result = (|| -> Result<bool> {
                     let captures = device::inspect()?;
-                    let mut retry = captures.iter().any(|c| !c.matches());
+                    let mut retry = needs_retry(&captures);
                     reboot_parents.retain(|p| captures.iter().any(|c| &c.parent == p));
                     if automatic {
                         for c in captures.iter().filter(|c| c.needs_repair()) {
@@ -280,6 +300,7 @@ pub fn watch() -> Result<()> {
                         }
                     }
                     status = snapshot(device::inspect()?, automatic, status.restart_required);
+                    update_diagnostics(&mut status, &mut known_locations);
                     persist(&status);
                     system::log(&format!(
                         "SCAN matched={} midi={} automatic={automatic}",
@@ -304,4 +325,34 @@ pub fn watch() -> Result<()> {
     persist(&status);
     system::log("MONITOR_STOP");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::identity::Check;
+    #[test]
+    fn empty_or_partial_enumeration_keeps_background_retry_eligible() {
+        assert!(needs_retry(&[]));
+        assert!(needs_retry(&[Capture::failed(
+            "test",
+            "children pending".into()
+        )]));
+        let complete = Capture {
+            parent: "test".into(),
+            checks: (0..14)
+                .map(|_| Check {
+                    name: String::new(),
+                    passed: true,
+                    detail: String::new(),
+                })
+                .collect(),
+            audio: vec![],
+        };
+        assert!(!needs_retry(std::slice::from_ref(&complete)));
+        assert!(needs_retry(&[
+            complete,
+            Capture::failed("another", "pending".into())
+        ]));
+    }
 }
